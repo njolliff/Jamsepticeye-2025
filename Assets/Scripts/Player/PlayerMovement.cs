@@ -4,19 +4,35 @@ using UnityEngine.InputSystem;
 public class PlayerMovement : MonoBehaviour
 {
     #region Variables
+    // SERIALIZED
     [Header("Components")]
     [SerializeField] private Rigidbody2D _rb; // Player rigid body 2D
     [SerializeField] private Collider2D _collider; // Player physics collider
+    [SerializeField] private PhysicsMaterial2D _physicsMaterial; // Player physics material
 
     [Header("Variables")]
     public float movementSpeed = 1f; // Horizontal force applied when moving left/right
-    [SerializeField] private float jumpStrength = 1f; // Vertical force applied when jumping
-    [SerializeField] private float wallJumpSrength = 0.5f; // Horizontal force applied before jumping when wall sliding
-    [SerializeField] private Vector2 _maxVelocity = new(5f, 5f); // Max velocity values
-    [SerializeField] private bool _canMove = true, _canJump = true; // Movement limiter bools
-    [SerializeField] private bool _isMoving, _isGrounded, _isWallSliding, _isFacingRight; // Movement state bools
+    [SerializeField] private float _jumpStrength = 1f; // Vertical force applied when jumping
+    [SerializeField] private float _wallJumpSrength = 0.5f; // Horizontal force applied before jumping when wall sliding
+    [SerializeField] private float _wallSlideFriction = 1.5f; // Higher friction value to apply when the player is wall sliding
+    public Vector2 maxVelocity = new(5f, 5f); // Max velocity values on X and Y axis
 
+    [Header("States")]
+    public bool canMove = true; // If the player is allowed to move
+    public bool canJump = true; // If the player has a jump
+    [SerializeField] private bool _isMoving; // If player is moving or not, used to determine animation
+    [SerializeField] private bool _isGrounded, _isWallSliding, _isFacingRight; // Movement states
+
+    // NON-SERIALIZED
     private Vector2 _movementInput; // Stored WASD/Arrow Keys input
+    private float _defaultFriction = 0.4f; // Normal friction value, set at Unity default 0.4f but initialized in Awake
+    #endregion
+
+    #region Initialization / Destruction
+    void Awake()
+    {
+        if (_physicsMaterial != null) _defaultFriction = _physicsMaterial.friction; // Get default friction value
+    }
     #endregion
 
     #region Update
@@ -30,7 +46,7 @@ public class PlayerMovement : MonoBehaviour
         UpdateOrientation();
 
         // Update _isMoving bool
-        _isMoving = !(_movementInput == Vector2.zero && _rb.linearVelocity == Vector2.zero && _isGrounded);
+        _isMoving = !(_movementInput.x == 0 && _rb.linearVelocity == Vector2.zero && _isGrounded);
     }
     void FixedUpdate()
     {
@@ -43,41 +59,41 @@ public class PlayerMovement : MonoBehaviour
     #region Main Methods
     private void MovePlayer()
     {
-        if (_movementInput == Vector2.zero || _rb == null || !_canMove) return; // Do nothing if there is no input, the rigidbody is null, or _canMove is false
+        if (_movementInput == Vector2.zero || _rb == null || !canMove) return; // Do nothing if there is no input, the rigidbody is null, or canMove is false
 
-        if (_movementInput.x > 0 && _rb.linearVelocityX < _maxVelocity.x)
+        if (_movementInput.x > 0 && _rb.linearVelocityX < maxVelocity.x)
             _rb.AddForceX(_movementInput.x * movementSpeed, ForceMode2D.Force);
-        else if (_movementInput.x < 0 && _rb.linearVelocityX > -_maxVelocity.x)
+        else if (_movementInput.x < 0 && _rb.linearVelocityX > -maxVelocity.x)
             _rb.AddForceX(_movementInput.x * movementSpeed, ForceMode2D.Force);
     }
     private void Jump()
     {
-        if (_rb == null || !_canJump) return; // Do nothing if the rigidbody is null or _canJump is false
+        if (_rb == null || !canJump) return; // Do nothing if the rigidbody is null or canJump is false
 
         // Disable jump only if jumping from the air
-        if (!_isGrounded && !_isWallSliding) _canJump = false;
+        if (!_isGrounded && !_isWallSliding) canJump = false;
 
         // If wall sliding, first apply a small force away from the wall
-        if (_isWallSliding)
+        if (_isWallSliding && !_isGrounded)
         {
-            if (_isFacingRight) _rb.AddForceX(-wallJumpSrength, ForceMode2D.Impulse); // If facing right, apply force left (negative)
-            else _rb.AddForceX(wallJumpSrength, ForceMode2D.Impulse); // If facing left, apply force right (positive)
+            if (_isFacingRight) _rb.AddForceX(-_wallJumpSrength, ForceMode2D.Impulse); // If facing right, apply force left (negative)
+            else _rb.AddForceX(_wallJumpSrength, ForceMode2D.Impulse); // If facing left, apply force right (positive)
         }
 
         // Halt Y velocity then apply force so that jump strength is always the same
         _rb.linearVelocityY = 0;
-        _rb.AddForceY(jumpStrength, ForceMode2D.Impulse);
+        _rb.AddForceY(_jumpStrength, ForceMode2D.Impulse);
     }
     private void LimitVelocity()
     {
         if (_rb == null) return; // Rigidbody null check
 
         // Clamp velocity on the X axis
-        if (Mathf.Abs(_rb.linearVelocityX) > _maxVelocity.x)
-            _rb.linearVelocityX = (_rb.linearVelocityX > 0) ? _maxVelocity.x : -_maxVelocity.x;
+        if (Mathf.Abs(_rb.linearVelocityX) > maxVelocity.x)
+            _rb.linearVelocityX = (_rb.linearVelocityX > 0) ? maxVelocity.x : -maxVelocity.x;
         // Clamp velocity on the Y axis
-        if (Mathf.Abs(_rb.linearVelocityY) > _maxVelocity.y)
-            _rb.linearVelocityY = (_rb.linearVelocityY > 0) ? _maxVelocity.y : -_maxVelocity.y;
+        if (Mathf.Abs(_rb.linearVelocityY) > maxVelocity.y)
+            _rb.linearVelocityY = (_rb.linearVelocityY > 0) ? maxVelocity.y : -maxVelocity.y;
     }
     private void UpdateOrientation()
     {
@@ -102,6 +118,19 @@ public class PlayerMovement : MonoBehaviour
     }
     #endregion
 
+    #region Public Methods
+    public void Freeze()
+    {
+        _rb.constraints = RigidbodyConstraints2D.FreezeAll; // Disable movement via rigidbody
+        canMove = false; // Disable movement via script
+    }
+    public void Unfreeze()
+    {
+        canMove = true; // Enable movement via script
+        _rb.constraints = RigidbodyConstraints2D.FreezeRotation; // Enable movement via rigidbody
+    }
+    #endregion
+
     #region Helper Methods
     private void DetermineGrounded()
     {
@@ -114,7 +143,7 @@ public class PlayerMovement : MonoBehaviour
 
         // Set the ray direction, length, and layer mask
         Vector2 rayDirection = Vector2.down;
-        LayerMask groundLayer = LayerMask.GetMask("Environment");
+        LayerMask groundLayer = LayerMask.GetMask("Ground Box");
         float rayLength = 0.05f;
 
         // Do the raycasts
@@ -126,7 +155,7 @@ public class PlayerMovement : MonoBehaviour
         if ((middleHit.collider != null && middleHit.collider.CompareTag("Ground")) || (leftHit.collider != null && leftHit.collider.CompareTag("Ground")) || (rightHit.collider != null && rightHit.collider.CompareTag("Ground")))
         {
             if (!_isGrounded) _isGrounded = true;
-            if (!_canJump) _canJump = true;
+            if (!canJump) canJump = true;
 
             // Draw debug rays
             Debug.DrawRay(middleRayOrigin, rayDirection * rayLength, (middleHit.collider != null) ? Color.green : Color.red);
@@ -154,29 +183,35 @@ public class PlayerMovement : MonoBehaviour
         // Determine the rays' direction and set their length
         Vector2 rayDirection = _isFacingRight ? Vector2.right : Vector2.left;
         float rayLength = 0.05f;
-        LayerMask wallLayer = LayerMask.GetMask("Environment");
+        LayerMask wallLayer = LayerMask.GetMask("Wall Box");
 
         // Do the raycasts
         RaycastHit2D upperHit = Physics2D.Raycast(upperRayOrigin, rayDirection, rayLength, wallLayer);
         RaycastHit2D middleHit = Physics2D.Raycast(middleRayOrigin, rayDirection, rayLength, wallLayer);
         RaycastHit2D lowerHit = Physics2D.Raycast(lowerRayOrigin, rayDirection, rayLength, wallLayer);
 
-        // If any ray hits a wall, set wallSliding to true and enable jump and dash
+        // If any ray hits a wall, set wallSliding to true and enable jump and switch to a higher friction value
         if ((upperHit.collider != null && upperHit.collider.CompareTag("Wall")) || (middleHit.collider != null && middleHit.collider.CompareTag("Wall")) || (lowerHit.collider != null && lowerHit.collider.CompareTag("Wall")))
         {
             // Set bools
             if (!_isWallSliding) _isWallSliding = true;
-            if (!_canJump) _canJump = true;
+            if (!canJump) canJump = true;
+
+            // Set higher friction
+            if (_physicsMaterial != null && _physicsMaterial.friction == _defaultFriction) _physicsMaterial.friction = _wallSlideFriction;
 
             // Draw debug rays
             Debug.DrawRay(upperRayOrigin, rayDirection * rayLength, (upperHit.collider != null) ? Color.green : Color.red);
             Debug.DrawRay(middleRayOrigin, rayDirection * rayLength, (middleHit.collider != null) ? Color.green : Color.red);
             Debug.DrawRay(lowerRayOrigin, rayDirection * rayLength, (lowerHit.collider != null) ? Color.green : Color.red);
         }
-        // If no ray hits a wall, set wallSliding to false and draw red debug rays
+        // If no ray hits a wall, set wallSliding to false and return to normal friction
         else
         {
             if (_isWallSliding) _isWallSliding = false;
+            if (_physicsMaterial != null && _physicsMaterial.friction == _wallSlideFriction) _physicsMaterial.friction = _defaultFriction;
+
+            // Draw debug rays
             Debug.DrawRay(upperRayOrigin, rayDirection * rayLength, Color.red);
             Debug.DrawRay(middleRayOrigin, rayDirection * rayLength, Color.red);
             Debug.DrawRay(lowerRayOrigin, rayDirection * rayLength, Color.red);
