@@ -72,7 +72,7 @@ public class GameManager : MonoBehaviour
     [ContextMenu("Kill Player")]
     public void KillPlayer()
     {
-        PlayerController.Instance.Die();
+        if (PlayerController.Instance != null) PlayerController.Instance.Die();
     }
     #endregion
 }
